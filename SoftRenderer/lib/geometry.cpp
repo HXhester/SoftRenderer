@@ -102,3 +102,27 @@ std::ostream& operator<<(std::ostream& s, Matrix& m) {
     }
     return s;
 }
+
+Plane::Plane() {}
+
+Plane::Plane(Vec3f& p1, Vec3f& p2, Vec3f& p3) {
+    Vec3f x = p1 - p2;
+    Vec3f y = p3 - p2;
+
+    normal = x ^ y;
+    normal.normalize();
+    point = Vec3f(p2.x, p2.y, p2.z);
+
+    d = normal * point;
+}
+
+void Plane::setPlaneWithPointAndNormal(Vec3f& p, Vec3f& normal) {
+    this->point = p;
+    this->normal = normal.normalize();
+    this->d = normal * point;
+}
+
+// O->p在平面normal的投影和O->平面上的点在平面normal投影的差
+float Plane::distance(Vec3f& p) {
+    return (normal * p - d);
+}

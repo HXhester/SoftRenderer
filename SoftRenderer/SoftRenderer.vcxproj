@@ -72,7 +72,7 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>D:\Softrenderer_XuGit\Softrenderer\Project1\lib;$(IncludePath)</IncludePath>
+    <IncludePath>D:\Softrenderer_XuGit\SoftRenderer\lib;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
@@ -143,9 +143,11 @@
     <ClInclude Include="lib\geometry.h" />
     <ClInclude Include="lib\model.h" />
     <ClInclude Include="lib\tgaimage.h" />
+    <ClInclude Include="src\camera.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="lib\geometry.cpp" />
+    <ClCompile Include="src\camera.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="lib\model.cpp" />
     <ClCompile Include="lib\tgaimage.cpp" />

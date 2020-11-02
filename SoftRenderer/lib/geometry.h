@@ -81,4 +81,18 @@ public:
 	friend std::ostream& operator<<(std::ostream& s, Matrix& m);
 };
 
+
+class Plane {
+public:
+	Vec3f point, normal;
+	// Distance between camera and plane
+	float d;
+
+	Plane();
+	Plane(Vec3f& p1, Vec3f& p2, Vec3f& p3);
+
+	void setPlaneWithPointAndNormal(Vec3f& p, Vec3f& n);
+
+	float distance(Vec3f& p);
+};
 #endif

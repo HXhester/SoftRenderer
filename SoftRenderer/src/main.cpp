@@ -5,6 +5,7 @@
 #include "tgaimage.h"
 #include "model.h"
 #include "geometry.h"
+#include "camera.h"
 
 #define PI 3.14159265
 
@@ -14,17 +15,17 @@ const int width = 800;
 const int height = 800;
 const int depth = 255;
 
-int* zBuffer = NULL;
+float* zBuffer = NULL;
 Model* model = NULL;
 const char* filename = "resources/african_head.obj";
-Matrix MVP = Matrix::identity(4);
 
-float fov = 60.f;
-float near = 0.1;
-float far = 100.f;
+Matrix modelViewM = Matrix::identity(4);
+Matrix projectionM = Matrix(4, 4);
+Matrix viewportM = Matrix::identity(4);
+
+Camera* camera = NULL;
 
 Vec3f lightDir(1, -1, 1);
-Vec3f camera(0, 0, 4);
 Vec3f origin(0, 0, 0);
 
 Vec3f barycentric(Vec3f* pts, Vec2i P) {
@@ -77,7 +78,7 @@ void line(int x0, int y0, int x1, int y1, TGAImage& image, TGAColor color) {
 }
 
 // TODO: improve z buffer mapping
-void triangle(Vec3f* pts, int* zBuffer, TGAImage& image,Vec2f* texCoord, float* intensity) {
+void triangle(Vec3f* pts, float* zBuffer, TGAImage& image,Vec2f* texCoord, float* intensity) {
 
 	Vec2f bboxmin(image.get_width() - 1, image.get_height() - 1);
 	Vec2f bboxmax(0, 0);
@@ -100,8 +101,9 @@ void triangle(Vec3f* pts, int* zBuffer, TGAImage& image,Vec2f* texCoord, float* 
 				Vec2f uv = texCoord[0]*bary[0] + texCoord[1] * bary[1] + texCoord[2] * bary[2];
 				float intens= intensity[0]*bary[0] + intensity[1] * bary[1] + intensity[2] * bary[2];
 				if (zBuffer[P.x + P.y * width] < z) {
+					//std::cout << z << std::endl;
 					zBuffer[P.x + P.y * width] = z;
-					
+
 					TGAColor c = model->diffuse(uv);
 					image.set(P.x, P.y, TGAColor(255,255,255) * intens);
 				}			
@@ -110,11 +112,6 @@ void triangle(Vec3f* pts, int* zBuffer, TGAImage& image,Vec2f* texCoord, float* 
 	}
 }
 
-Vec3f world2Screen(Vec3f p) {
-	return Vec3f((p.x + 1.) * width / 2, (p.y + 1.) * height / 2, p.z);
-}
-
-//TODO: check why this is performance heavy
 void mulMatrixVector(Matrix& m, const Vec3f& v, Vec3f& out) {
 	out.x = m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z + m[0][3];
 	out.y = m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z + m[1][3];
@@ -128,57 +125,7 @@ void mulMatrixVector(Matrix& m, const Vec3f& v, Vec3f& out) {
 	}
 }
 
-void drawWireframe(TGAImage & image) {
-	for (int i = 0; i < model->nfaces(); i++) {
-		std::vector<int> vertices = model->face_vert(i);
-		for (int j = 2; j >= 0; j--) {
-			Vec3f v0 = model->vert(vertices[j]);
-			Vec3f v1 = model->vert(vertices[(j + 1) % 3]);
-
-			int x0 = (v0.x + 1.) * width / 2.;
-			int y0 = (v0.y + 1.) * height / 2.;
-
-			int x1 = (v1.x + 1.) * width / 2.;
-			int y1 = (v1.y + 1.) * height / 2.;
-
-			line(x0, y0, x1, y1, image, white);
-		}
-	}
-}
-
-void drawSolid(TGAImage& image, int* zBuffer) {
-
-	for (int i = 0; i < model->nfaces(); i++) {
-		std::vector<int> vertices = model->face_vert(i);
-		Vec3f worldCoords[3];
-		Vec3f screenCoords[3];
-		Vec2f texCoords[3];
-		float intensity[3];
-		for (int j = 2; j >= 0; j--) {
-			Vec3f v = model->vert(vertices[j]);
-			worldCoords[j] = v;
-			screenCoords[j] = Vec3f(MVP * v);
-			//screenCoords[j] = world2Screen(Vec3f(v.x / (1 - v.z / 5.f), v.y / (1 - v.z / 5.f), v.z / (1 - v.z / 5.f)));
-			texCoords[j] = model->texCoord(i, j);
-			intensity[j] = model->normal(i, j) * lightDir;
-		}
-
-		triangle(screenCoords, zBuffer, image, texCoords, intensity);
-	}
-}
-
-void setProjectionMatrix(const float& fov, const float& near, const float& far, Matrix& M) {
-	float scale = 1.f / tan(fov * 0.5 * PI / 180);
-	M[0][0] = scale;
-	M[1][1] = scale;
-	M[2][2] = -far / (far - near); // used to remap z to [0,1] 
-	M[3][2] = -far * near / (far - near); // used to remap z [0,1] 
-	M[2][3] = -1; // set w = -z 
-	M[3][3] = 0;
-}
-
-// WIP transform
-Matrix modelM(Vec3f pos, Vec3f rot, Vec3f scale) {
+Matrix matrixM(Vec3f pos, Vec3f rot, Vec3f scale) {
 	Matrix T = Matrix::identity(4);
 	Matrix Rx = Matrix::identity(4);
 	Matrix Ry = Matrix::identity(4);
@@ -209,30 +156,47 @@ Matrix modelM(Vec3f pos, Vec3f rot, Vec3f scale) {
 	Rz[1][1] = std::cos((double)rot.z * PI / 180);
 
 	Matrix result(4, 4);
-	result = Rx * Ry * Rz * S * T;
+	result = T * S * Rx * Ry * Rz;
 	return result;
 }
 
-Matrix lookat(Vec3f eye, Vec3f center, Vec3f up) {
+// eye, center, up are defined in world space
+// convert from world space to camera space
+Matrix matrixV(Vec3f eye, Vec3f center, Vec3f up) {
 	Matrix result = Matrix::identity(4);
-	Matrix obj2world = Matrix::identity(4);
-	Matrix world2cam = Matrix::identity(4);
+	Matrix cam2world = Matrix::identity(4);
 
-	Vec3f z = (eye - center).normalize();
+	Vec3f z = (eye - center).normalize();	// 相机空间z应该是正？竟然应该是负
 	Vec3f x = (up ^ z).normalize();
 	Vec3f y = (z ^ x).normalize();
 
 	for (int i = 0; i < 3; i++) {
-		world2cam[0][i] = x[i];
-		world2cam[1][i] = y[i];
-		world2cam[2][i] = z[i];
-		obj2world[i][3] = -center[i];
+		cam2world[i][0] = x[i];
+		cam2world[i][1] = y[i];
+		cam2world[i][2] = z[i];
+		cam2world[i][3] = eye[i];
 	}
-	result = world2cam * obj2world;
+	result = cam2world.inverse();
 	return result;
 }
 
-Matrix viewport(int x, int y, int w, int h) {
+// Projection matrix remap the camera space to canonical view volumn
+// After projection matrix, vertices are represented by homogenious coordinate with w=1
+
+Matrix matrixP(float fov, float near, float far) {
+	Matrix result(4, 4);
+	//Matrix result = Matrix::identity(4);
+	float scale = 1 / tan(fov * 0.5 * PI / 180);
+	result[0][0] = scale;
+	result[1][1] = scale;
+	result[2][2] = far / (far - near); // used to remap z to [0,1] 
+	result[2][3] = far * near / (far - near); // used to remap z [0,1] 
+	result[3][2] = -1; // set w = -z 
+	result[3][3] = 0;
+	return result;
+}
+
+Matrix clip2Screen(int x, int y, int w, int h) {
 	Matrix result = Matrix::identity(4);
 	result[0][3] = x + w / 2.f;
 	result[1][3] = y + h / 2.f;
@@ -244,31 +208,79 @@ Matrix viewport(int x, int y, int w, int h) {
 	return result;
 }
 
+void drawWireframe(TGAImage & image) {
+	for (int i = 0; i < model->nfaces(); i++) {
+		std::vector<int> vertices = model->face_vert(i);
+		for (int j = 2; j >= 0; j--) {
+			Vec3f v0 = model->vert(vertices[j]);
+			Vec3f v1 = model->vert(vertices[(j + 1) % 3]);
 
-int main(int argc, char** argv) {
+			int x0 = (v0.x + 1.) * width / 2.;
+			int y0 = (v0.y + 1.) * height / 2.;
 
-	model = new Model(filename);
-	TGAImage image(width, height, TGAImage::RGB);
-	zBuffer = new int[width * height];
+			int x1 = (v1.x + 1.) * width / 2.;
+			int y1 = (v1.y + 1.) * height / 2.;
 
-	Matrix modelViewM = lookat(camera, origin, Vec3f(0, 1.f, 0));
-	Matrix viewportM = viewport(width / 8, height / 8, width * 3 / 4, height * 3 / 4);
-	Matrix projectionM = Matrix::identity(4);
-	projectionM[3][2] = -1.f / (camera - origin).magnitude();
+			line(x0, y0, x1, y1, image, white);
+		}
+	}
+}
+
+void drawSolid(TGAImage& image, float* zBuffer) {
+
+	modelViewM = matrixV(camera->pos, origin, Vec3f(0, 1.f, 0)) * matrixM(Vec3f(0, 0, 0), Vec3f(0, 0, 0), Vec3f(1, 1, 1));
+	projectionM = matrixP(camera->fov, camera->near, camera->far);
+
+	viewportM = clip2Screen(width / 8, height / 8, width * 3 / 4, height * 3 / 4);
 
 	// Be cautious about the order!
-	MVP = viewportM * projectionM * modelViewM;
 	std::cerr << modelViewM << std::endl;
 	std::cerr << projectionM << std::endl;
 	std::cerr << viewportM << std::endl;
-	std::cerr << MVP << std::endl;
+
+	for (int i = 0; i < model->nfaces(); i++) {
+		std::vector<int> vertices = model->face_vert(i);
+		Vec3f worldCoords[3];
+		Vec3f screenCoords[3];
+		Vec2f texCoords[3];
+		float intensity[3];
+		for (int j = 2; j >= 0; j--) {
+			Vec3f v = model->vert(vertices[j]);
+			Vec3f vertCamera, vertProj;
+			worldCoords[j] = v;
+			mulMatrixVector(modelViewM, v, vertCamera);
+			mulMatrixVector(projectionM, vertCamera, vertProj);
+			
+			//std::cout << vertCamera.z << "," << vertProj.z << std::endl;
+
+			screenCoords[j] = viewportM * vertProj;
+
+			texCoords[j] = model->texCoord(i, j);
+			intensity[j] = model->normal(i, j) * lightDir;
+		}
+
+		triangle(screenCoords, zBuffer, image, texCoords, intensity);
+	}
+}
+
+int main(int argc, char** argv) {
+
+	TGAImage image(width, height, TGAImage::RGB);
+
+	model = new Model(filename);
+	zBuffer = new float[width * height];
+
+	camera = new Camera();
+	camera->pos = Vec3f(1, 0, 2);
+	camera->fov = 90.f;
+	camera->near = 1.f;
+	camera->far = 3.f;
 
 	drawSolid(image, zBuffer);
 
 	image.flip_vertically(); // i want to have the origin at the left bottom corner of the image
 	image.write_tga_file("out/output.tga");
 	
-
 	// dump z-buffer (debugging purposes only)
 	TGAImage zbimage(width, height, TGAImage::GRAYSCALE);
 	for (int i = 0; i < width; i++) {
@@ -278,7 +290,6 @@ int main(int argc, char** argv) {
 	}
 	zbimage.flip_vertically(); // i want to have the origin at the left bottom corner of the image
 	zbimage.write_tga_file("out/zbuffer.tga");
-
 
 	delete model;
 	delete[] zBuffer;
