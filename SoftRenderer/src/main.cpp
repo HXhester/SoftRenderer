@@ -104,8 +104,9 @@ void triangle(Vec3f* pts, float* zBuffer, TGAImage& image,Vec2f* texCoord, float
 					//std::cout << z << std::endl;
 					zBuffer[P.x + P.y * width] = z;
 
+
 					TGAColor c = model->diffuse(uv);
-					image.set(P.x, P.y, TGAColor(255,255,255) * intens);
+					image.set(P.x, P.y, c * intens);
 				}			
 			}
 		}

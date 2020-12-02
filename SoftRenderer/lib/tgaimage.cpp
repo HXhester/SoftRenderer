@@ -256,6 +256,22 @@ TGAColor TGAImage::get(int x, int y) {
     return TGAColor(data + (x + y * width) * bytespp, bytespp);
 }
 
+TGAColor TGAImage::get(float x, float y) {
+    if (!data || x < 0 || y < 0 || x >= width || y >= height) {
+        return TGAColor();
+    }
+
+    int x0 = (int)std::floorf(x);
+    int x1 = (int)std::ceilf(x);
+    int y0 = (int)std::floorf(y);
+    int y1 = (int)std::ceilf(y);
+
+    TGAColor res0 = this->get(x0, y0) * (y - y0) + this->get(x0, y1)* (y1 - y);
+    TGAColor res1 = this->get(x1, y0) * (y - y0) + this->get(x1, y1) * (y1 - y);
+    TGAColor res = res0 * (x-x0) + res1*(x1-x);
+    return res;
+}
+
 bool TGAImage::set(int x, int y, TGAColor& c) {
     if (!data || x < 0 || y < 0 || x >= width || y >= height) {
         return false;

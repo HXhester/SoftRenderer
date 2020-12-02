@@ -55,7 +55,15 @@ struct TGAColor {
     TGAColor operator *(float intensity) const {
         TGAColor res = *this;
         intensity = (intensity > 1.f ? 1.f : (intensity < 0.f ? 0.f : intensity));
-        for (int i = 0; i < 4; i++) res.bgra[i] = bgra[i] * intensity;
+        for (int i = 0; i < 4; i++)  res.bgra[i]= bgra[i] * intensity;
+        return res;
+    }
+
+    TGAColor operator +(TGAColor color) {
+        TGAColor res;
+        for (int i = 0; i < 4; i++) {
+            res.bgra[i] = this->bgra[i] + color.bgra[i];
+        }
         return res;
     }
 };
@@ -84,6 +92,7 @@ public:
     bool flip_vertically();
     bool scale(int w, int h);
     TGAColor get(int x, int y);
+    TGAColor get(float x, float y);
     bool set(int x, int y, TGAColor& c);
     bool set(int x, int y, const TGAColor& c);
     ~TGAImage();
